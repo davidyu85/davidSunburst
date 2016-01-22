@@ -118,7 +118,7 @@ function mouseover(d) {
   }
 
   d3.select("#percentage")
-      .text(d.name+" stands "+percentageString+"%"+" in the circle");
+      .text(d.name+" stands "+percentageString+" in the circle");
 
   d3.select("#explanation")
       .style("visibility", "");
