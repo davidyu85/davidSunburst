@@ -10,12 +10,8 @@ var b = {
 
 // Mapping of step names to colors.
 var colors = {
-  "home": "#5687d1",
-  "product": "#7b615c",
-  "search": "#de783b",
-  "account": "#6ab975",
-  "other": "#a173d1",
-  "end": "#bbbbbb"
+  "match": "#800",
+  "unmatch": "#006"
 };
 
 // Total size of all segments; we set this later, after loading the data.
@@ -48,21 +44,24 @@ d3.json("example.json",function(error,data){
   disorders.forEach(function(d){
     d.phenotypes.forEach(function(p){
       p.root_terms.forEach(function(r){
+        var pushed;
         seq = d.label+"-"+r+"-"+p.label;
         
         patient
           .phenotypes.forEach(function(pp){
             if(seq.match(pp.label)!=null){
-              arrayData.push([seq,1]);
+              pushed = [seq,1,"match"];
             }else if(pp.similar_to){
               pp.similar_to.forEach(function(st){
                 if(seq.match(st.label)!=null)
-                  arrayData.push([seq,st.similarity_value]);
+                  pushed = [seq,st.similarity_value,"match"];
               });
             }
           })
         ;
         
+        pushed = pushed || [seq,1,""];
+        arrayData.push(pushed);
       });
     });
   });
@@ -97,7 +96,7 @@ function createVisualization(json) {
       .attr("display", function(d) { return d.depth ? null : "none"; })
       .attr("d", arc)
       .attr("fill-rule", "evenodd")
-      .style("fill", function(d) { return colors[d.name]; })
+      .style("fill", function(d) {return colors[d.state]; })
       .style("opacity", 1)
       .on("mouseover", mouseover);
 
@@ -116,9 +115,16 @@ function mouseover(d) {
   if (percentage < 0.1) {
     percentageString = "< 0.1%";
   }
-
+  
+  var txt;
+  
+  if(d.state == "match")
+    txt = "Patient has <b>"+d.name+"</b> which stands <b>"+percentageString+"</b> in the circle";
+  else
+    txt = "Patient does not have <b>"+d.name+"</b> which stands <b>"+percentageString+"</b> in the circle";
+    
   d3.select("#percentage")
-      .text(d.name+" stands "+percentageString+" in the circle");
+      .html(txt);
 
   d3.select("#explanation")
       .style("visibility", "");
@@ -187,7 +193,7 @@ function initializeBreadcrumbTrail() {
 
 // Generate a string that describes the points of a breadcrumb polygon.
 function breadcrumbPoints(d, i) {
-  var points = [];console.log(d);
+  var points = [];
 
   points.push("0,0");
   points.push(b.w + ",0");
@@ -213,7 +219,7 @@ function updateBreadcrumbs(nodeArray, percentageString) {
 
   entering.append("svg:polygon")
       .attr("points", breadcrumbPoints)
-      .style("fill", function(d) { return colors[d.name]; });
+      .style("fill", function(d) { return colors[d.state]; });
 
   entering.append("svg:text")
       .attr("x", (b.w + b.t) / 2)
@@ -295,6 +301,7 @@ function buildHierarchy(csv) {
   for (var i = 0; i < csv.length; i++) {
     var sequence = csv[i][0];
     var size = +csv[i][1];
+    var state = csv[i][2];
     if (isNaN(size)) { // e.g. if this is a header row
       continue;
     }
@@ -305,25 +312,27 @@ function buildHierarchy(csv) {
       var nodeName = parts[j];
       var childNode;
       if (j + 1 < parts.length) {
-   // Not yet at the end of the sequence; move down the tree.
- 	var foundChild = false;
- 	for (var k = 0; k < children.length; k++) {
- 	  if (children[k]["name"] == nodeName) {
- 	    childNode = children[k];
- 	    foundChild = true;
- 	    break;
- 	  }
- 	}
-  // If we don't already have a child node for this branch, create it.
- 	if (!foundChild) {
- 	  childNode = {"name": nodeName, "children": []};
- 	  children.push(childNode);
- 	}
- 	currentNode = childNode;
+         // Not yet at the end of the sequence; move down the tree.
+        var foundChild = false;
+        for (var k = 0; k < children.length; k++) {
+          if (children[k]["name"] == nodeName) {
+            childNode = children[k];
+            foundChild = true;
+            break;
+          }
+        }
+        // If we don't already have a child node for this branch, create it.
+        if (!foundChild) {
+          childNode = {"name": nodeName, "children": []};
+          children.push(childNode);
+        }
+        currentNode = childNode;
+        if(state == "match")currentNode.state = "match";
       } else {
- 	// Reached the end of the sequence; create a leaf node.
- 	childNode = {"name": nodeName, "size": size};
- 	children.push(childNode);
+        // Reached the end of the sequence; create a leaf node.
+        childNode = {"name": nodeName, "size": size, "state": state};
+        children.push(childNode);
+        if(state == "match")currentNode.state = "match";
       }
     }
   }
