@@ -10,8 +10,9 @@ var b = {
 
 // Mapping of step names to colors.
 var colors = {
-  "match": "#800",
-  "unmatch": "#006"
+  "present": "#080",
+  "not_present": "#800",
+  "no_information": "#bbb"
 };
 
 // Total size of all segments; we set this later, after loading the data.
@@ -35,9 +36,10 @@ var arc = d3.svg.arc()
     .outerRadius(function(d) { return Math.sqrt(d.y + d.dy); });
 
 // DAVID:Modified to read json data directly.
+var arrayData = [];
+
 d3.json("example.json",function(error,data){
-  var arrayData = [],
-      seq = "",
+  var seq = "",
       patient = data.sourcePatient,
       disorders = data.disorders;
   
@@ -50,17 +52,17 @@ d3.json("example.json",function(error,data){
         patient
           .phenotypes.forEach(function(pp){
             if(seq.match(pp.label)!=null){
-              pushed = [seq,1,"match"];
+              pushed = [seq,1,pp.state];
             }else if(pp.similar_to){
               pp.similar_to.forEach(function(st){
                 if(seq.match(st.label)!=null)
-                  pushed = [seq,st.similarity_value,"match"];
+                  pushed = [seq,st.similarity_value,pp.state];
               });
             }
           })
         ;
         
-        pushed = pushed || [seq,1,""];
+        pushed = pushed || [seq,1,"no_information"];
         arrayData.push(pushed);
       });
     });
@@ -118,10 +120,12 @@ function mouseover(d) {
   
   var txt;
   
-  if(d.state == "match")
-    txt = "Patient has <b>"+d.name+"</b> which stands <b>"+percentageString+"</b> in the circle";
+  if(d.state == "present")
+    txt = "<b>"+d.name+"</b> is <b>presented</b> in patient, which stands <b>"+percentageString+"</b> in the circle";
+  else if(d.state == "not_present")
+    txt = "<b>"+d.name+" is <b>not presented<b> in patient, which stands <b>"+percentageString+"</b> in the circle";
   else
-    txt = "Patient does not have <b>"+d.name+"</b> which stands <b>"+percentageString+"</b> in the circle";
+    txt = "There is <b>no information</b> on <b>"+d.name+"</b> in patient, which stands <b>"+percentageString+"</b> in the circle";
     
   d3.select("#percentage")
       .html(txt);
@@ -254,7 +258,7 @@ function drawLegend() {
 
   // Dimensions of legend item: width, height, spacing, radius of rounded rect.
   var li = {
-    w: 75, h: 30, s: 3, r: 3
+    w: 150, h: 30, s: 3, r: 3
   };
 
   var legend = d3.select("#legend").append("svg:svg")
@@ -312,7 +316,7 @@ function buildHierarchy(csv) {
       var nodeName = parts[j];
       var childNode;
       if (j + 1 < parts.length) {
-         // Not yet at the end of the sequence; move down the tree.
+        // Not yet at the end of the sequence; move down the tree.
         var foundChild = false;
         for (var k = 0; k < children.length; k++) {
           if (children[k]["name"] == nodeName) {
@@ -321,20 +325,111 @@ function buildHierarchy(csv) {
             break;
           }
         }
+        
         // If we don't already have a child node for this branch, create it.
         if (!foundChild) {
-          childNode = {"name": nodeName, "children": []};
-          children.push(childNode);
+          childNode = {"name": nodeName, "children": [], "state":"no_information"};
+          children.push(childNode); 
         }
         currentNode = childNode;
-        if(state == "match")currentNode.state = "match";
+        if(state == "present")currentNode.state = "present";
+        if(currentNode.state != "present"){
+          var npcount = 0;
+          currentNode.children.forEach(function(c){
+            if(c.state == "not_present") npcount++;
+          });
+        }
       } else {
         // Reached the end of the sequence; create a leaf node.
         childNode = {"name": nodeName, "size": size, "state": state};
         children.push(childNode);
-        if(state == "match")currentNode.state = "match";
+        buildList(nodeName,state);
+        if(state == "present")currentNode.state = "present";
       }
     }
   }
+
+  //DAVID: Loop through the second time to mark the "not_present" if its children is all have "not_present" status.
+  var detect = "not_present";
+  root.children.forEach(function(disorder){    
+    var outercount = 0
+    
+    disorder.children.forEach(function(abnormaly){
+      var innercount = 0
+      abnormaly.children.forEach(function(phenotype){
+        if(phenotype.state == detect)
+          innercount++;
+      });
+      
+      if(innercount == abnormaly.children.length)
+        abnormaly.state = detect;
+      
+      if(abnormaly.state == detect)
+        outercount++;
+    });
+    
+    if(outercount == disorder.children.length)
+      disorder.state = detect;
+  });
+  
   return root;
 };
+
+
+//DAVID: This function called from the buildHierarchy builds an interactive phenotype list that will redraw the graph.
+function buildList(pheno,state){
+  if(d3.select('.plist[data-value="'+pheno+'"]') == ""){
+    d3
+      .select("#phenolist")
+      .append("div")
+        .attr("class","plist")
+        .attr("data-value",pheno)
+        .style("color",function(){ return colors[state];})
+        .style("cursor","pointer")
+        .text(pheno)
+        .on("click",function(){toggleState(pheno,state);})
+    ;
+  }
+}
+
+function toggleState(pheno,state){
+  var newData = [],
+      newState;
+  arrayData.forEach(function(d){
+    if(d[0].match(pheno) != null){
+      switch(state){
+        case "present":
+          newState = "not_present";
+          break;
+        case "not_present":
+          newState = "no_information";
+          break;
+        default:
+          newState = "present";
+          break;
+      }
+    
+      newData.push([d[0],d[1],newState]);
+    }
+    else newData.push([d[0],d[1],d[2]]);
+  })
+  
+  arrayData = newData;
+
+  d3.select("#phenolist").html("");
+  d3.selectAll("svg").remove();
+  d3.select("#sequence").html("");
+  d3.select("#legend").html("");
+  
+  totalSize = 0; 
+
+  vis = d3.select("#chart").append("svg:svg")
+    .attr("width", width)
+    .attr("height", height)
+    .append("svg:g")
+    .attr("id", "container")
+    .attr("transform", "translate(" + width / 2 + "," + height / 2 + ")");
+  
+  var json = buildHierarchy(arrayData);
+  createVisualization(json);
+}

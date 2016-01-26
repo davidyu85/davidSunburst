@@ -27,6 +27,10 @@ body {
   padding: 10px 0 0 3px;
 }
 
+#phenolist{
+  margin-top:24px;
+}
+
 #sequence text, #legend text {
   font-weight: 600;
   fill: #fff;
